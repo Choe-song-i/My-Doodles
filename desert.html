@@ -19,11 +19,13 @@
   #bubble::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 10px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.93); }
   #bubbleX { display: none; position: absolute; top: -11px; right: -11px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: #555; color: #fff; font-size: 17px; line-height: 26px; text-align: center; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
   #bubble.sel #bubbleX { display: block; }
+  #netStatus { position: fixed; left: 10px; top: 10px; z-index: 20; max-width: 80vw; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.72); color: #444; font: 12px/1.3 "Noto Sans KR", "Malgun Gothic", sans-serif; pointer-events: none; }
   .rbubble { position: fixed; left: 0; top: 0; display: none; z-index: 9; transform: translate(-50%, -100%); max-width: min(270px, 72vw); padding: 12px 16px; background: rgba(255,255,255,.93); border-radius: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.22); color: #333; font: 15px/1.45 "Noto Sans KR", "Malgun Gothic", sans-serif; white-space: pre-wrap; word-break: break-word; pointer-events: none; box-sizing: border-box; }
   .rbubble::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 10px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.93); }
     </style>
 </head>
 <body>
+<div id="netStatus">멀티플레이: 확인 중…</div>
 <div id="chatIn"><div class="row"><input id="chatText" type="text" maxlength="200" placeholder="말을 입력하세요 (200자 이내)" autocomplete="off"><button id="chatSend">말하기</button></div><div id="chatCount">0 / 200</div></div>
 <div id="bubble"><button id="bubbleX" aria-label="삭제">×</button><span id="bubbleText"></span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -601,6 +603,14 @@
         var ddx = c.pos.x - cur.x, ddz = c.pos.y - cur.y, ddc = Math.hypot(ddx, ddz);
         if (ddc < 3.0 && ddc > 1e-4) { c.pos.x = cur.x + ddx / ddc * 3.0; c.pos.y = cur.y + ddz / ddc * 3.0; }
       }
+      if (!c.net) {
+        Object.keys(remotes).forEach(function (u) {
+          var rm = remotes[u];
+          if (rm.onCamel >= 0 || rm.act === 2) return;
+          var ex = c.pos.x - rm.x, ez = c.pos.y - rm.z, ed = Math.hypot(ex, ez);
+          if (ed < 3 && ed > 1e-4) { c.pos.x = rm.x + ex / ed * 3; c.pos.y = rm.z + ez / ed * 3; }
+        });
+      }
       c.pos.x = Math.max(-LIMIT, Math.min(LIMIT, c.pos.x)); c.pos.y = Math.max(-LIMIT, Math.min(LIMIT, c.pos.y));
       var gh2 = height(c.pos.x, c.pos.y), fx2 = Math.sin(c.facing), fz2 = Math.cos(c.facing);
       var sl = (height(c.pos.x + fx2 * 3, c.pos.y + fz2 * 3) - height(c.pos.x - fx2 * 3, c.pos.y - fz2 * 3)) / 6;
@@ -1008,6 +1018,20 @@
       d.rotation.set(bw * (0.5 + 0.2 * sip), rm.f, 0);
     });
   }
+  // do not walk through other users' characters (go around them)
+  function avoidPlayers(v) {
+    for (var pass = 0; pass < 2; pass++) {
+      Object.keys(remotes).forEach(function (u) {
+        var rm = remotes[u];
+        if (rm.onCamel >= 0 || rm.act === 2) return;
+        var dx = v.x - rm.x, dz = v.y - rm.z, d = Math.hypot(dx, dz);
+        if (d < 2.6) {
+          if (d < 1e-4) { dx = 1; dz = 0; d = 1; }
+          v.x = rm.x + dx / d * 2.6; v.y = rm.z + dz / d * 2.6;
+        }
+      });
+    }
+  }
   var rbAnchor = new THREE.Vector3();
   function updateRemoteBubbles() {
     var W = window.innerWidth, H = window.innerHeight;
@@ -1212,6 +1236,7 @@
         cur.copy(cn.p).addScaledVector(cd, 0.3);
       }
       avoidCamels(cur);
+      avoidPlayers(cur);
     }
     camY += (height(cur.x, cur.y) + climbY - camY) * (1 - Math.exp(-dt * 6));
     var vx = cur.x - px, vz = cur.y - pz, spd = Math.sqrt(vx * vx + vz * vz) / Math.max(dt, 0.001);
@@ -1300,7 +1325,7 @@
 })();
 </script>
 <script type="module">
-  // ▼▼▼ Firebase 콘솔(프로젝트 설정 → 내 앱 → 웹 앱)의 firebaseConfig 값을 아래에 붙여 넣으세요 ▼▼▼
+  // ▼▼▼ Firebase 콘솔의 firebaseConfig 값 (관리자 키·비밀키는 절대 넣지 마세요) ▼▼▼
   const firebaseConfig = {
     apiKey: "AIzaSyDR24ODeoi_Gi_2YvU0MdsV9zWCroDoXLo",
     authDomain: "desert-test1.firebaseapp.com",
@@ -1308,62 +1333,76 @@
     projectId: "desert-test1",
     appId: "1:793089262326:web:95c7bab91a79d17f6d62d7"
   };
-  // ▲▲▲ 여기까지 ▲▲▲ (관리자 키·비밀키는 절대 넣지 마세요)
+  // ▲▲▲ 여기까지 ▲▲▲
 
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getDatabase, ref, set, update, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   const D = window.desert;
+  const badge = document.getElementById("netStatus");
+  const status = (text, ok) => { badge.textContent = (ok ? "● " : "○ ") + "멀티플레이: " + text; badge.style.color = ok ? "#1a7f4b" : "#b3261e"; };
+  const hint = (e) => {
+    const c = (e && e.code) || "", m = (e && e.message) || String(e);
+    if (c === "auth/operation-not-allowed") return "익명 로그인이 꺼져 있어요 (Authentication → 로그인 방법에서 익명을 켜 주세요)";
+    if (c === "auth/unauthorized-domain") return "승인된 도메인에 이 사이트 주소를 추가해 주세요";
+    if (c.indexOf("api-key") >= 0 || c === "auth/invalid-api-key") return "apiKey 값이 올바른지 확인해 주세요";
+    if (/permission_denied/i.test(c + m)) return "서버가 거절했어요 (Realtime Database 규칙을 게시했는지 확인해 주세요)";
+    return c || m;
+  };
 
   if (!firebaseConfig.apiKey || firebaseConfig.apiKey.startsWith("YOUR_")) {
-    console.info("[멀티플레이] firebaseConfig가 비어 있어서 혼자 모드로 실행합니다.");
+    status("혼자 모드 (firebaseConfig가 비어 있어요)", false);
   } else {
-    start().catch((e) => console.warn("[멀티플레이] 연결에 실패해서 혼자 모드로 계속합니다.", e));
+    start().catch((e) => { console.warn("[멀티플레이] 연결 실패", e); status("연결 실패 - " + hint(e), false); });
   }
 
   async function start() {
+    status("연결 중…", false);
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
     const db = getDatabase(app);
-    const uid = (await signInAnonymously(auth)).user.uid;   // 익명 로그인
-    const meRef = ref(db, "players/" + uid);
+    const uid = (await signInAnonymously(auth)).user.uid;            // 익명 로그인
+    const myKey = uid + "_" + Math.random().toString(36).slice(2, 8); // 탭마다 다른 캐릭터
+    const meRef = ref(db, "players/" + myKey);
     const NCAM = D.camelCount();
     const round = (v) => Math.round(v * 100) / 100;
-    let players = {}, lastSent = "";
+    let players = {}, lastSent = "", wroteOnce = false;
     const camSent = {};
+    status("로그인됨, 데이터 확인 중…", false);
 
     // 접속할 때마다: 연결이 끊기면 서버가 내 칸(위치·말풍선·탑승 정보)을 통째로 지우도록 예약
     onValue(ref(db, ".info/connected"), (s) => {
       if (s.val() === true) { onDisconnect(meRef).remove().catch(() => {}); lastSent = ""; }
     });
 
-    // 낙타를 누가 움직일지: 탄 사람(uid가 가장 작은 사람) → 없으면 접속자 중 uid가 가장 작은 사람
+    // 낙타를 누가 움직일지: 탄 사람(키가 가장 작은 사람) → 없으면 접속자 중 키가 가장 작은 사람
     function controllerOf(i) {
       const riders = Object.keys(players).filter((k) => players[k] && players[k].camel === i).sort();
       if (riders.length) return riders[0];
-      return Object.keys(players).concat([uid]).sort()[0];
+      return Object.keys(players).concat([myKey]).sort()[0];
     }
     function applyControl() {
-      for (let i = 0; i < NCAM; i++) D.camelNet(i, controllerOf(i) !== uid);
+      for (let i = 0; i < NCAM; i++) D.camelNet(i, controllerOf(i) !== myKey);
     }
 
     onValue(ref(db, "players"), (snap) => {
       players = snap.val() || {};
       const seen = new Set();
       for (const [k, v] of Object.entries(players)) {
-        if (k === uid || !v || typeof v.x !== "number" || typeof v.z !== "number") continue;
+        if (k === myKey || !v || typeof v.x !== "number" || typeof v.z !== "number") continue;
         seen.add(k);
         D.setRemote(k, v);
       }
       D.pruneRemotes(seen);
       applyControl();
-    });
+      status(wroteOnce ? "접속됨 · 다른 유저 " + seen.size + "명" : "읽기 성공, 내 정보 올리는 중…", wroteOnce);
+    }, (e) => { console.warn("[멀티플레이] 읽기 거부", e); status("읽기 실패 - " + hint(e), false); });
 
     onValue(ref(db, "camels"), (snap) => {
       const v = snap.val() || {};
       for (const [i, c] of Object.entries(v)) D.camelRecv(Number(i), c.x, c.z, c.f);
-    });
+    }, (e) => console.warn("[멀티플레이] 낙타 읽기 거부", e));
 
     // 0.1초마다: 바뀐 내용만 올리기
     setInterval(() => {
@@ -1372,16 +1411,19 @@
       if (m.say) data.say = m.say;
       if (m.act) { data.act = m.act; if (m.act === 2) { data.palm = m.palm; data.u = round(m.u); } }
       const key = JSON.stringify([data.name, data.x, data.z, data.f, data.camel, data.say || "", data.act || 0, data.palm || 0, data.u || 0]);
-      if (key !== lastSent) { lastSent = key; set(meRef, data).catch(() => {}); }
+      if (key !== lastSent) {
+        lastSent = key;
+        set(meRef, data).then(() => { wroteOnce = true; }).catch((e) => { console.warn("[멀티플레이] 쓰기 거부", e); status("내 정보를 올리지 못했어요 - " + hint(e), false); });
+      }
 
       const up = {};
       for (let i = 0; i < NCAM; i++) {
-        if (controllerOf(i) !== uid) continue;
+        if (controllerOf(i) !== myKey) continue;
         const c = D.camelState(i);
         const k = [round(c.x), round(c.z), round(c.f)].join(",");
         if (k !== camSent[i]) { camSent[i] = k; up["camels/" + i] = { x: round(c.x), z: round(c.z), f: round(c.f), t: serverTimestamp() }; }
       }
-      if (Object.keys(up).length) update(ref(db), up).catch(() => {});
+      if (Object.keys(up).length) update(ref(db), up).catch((e) => console.warn("[멀티플레이] 낙타 쓰기 거부", e));
     }, 100);
   }
 </script>
