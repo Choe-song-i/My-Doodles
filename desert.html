@@ -628,7 +628,7 @@
     var k = 1 - Math.exp(-dt * 8);
     camels.forEach(function (c) {
       c.riders.forEach(function (r, i) {
-        if (r.doll.parent !== c.body) return;
+        if (r.doll.parent !== c.body || r.hopActive) return;
         r.doll.position.x = SEAT.x; r.doll.position.z = SEAT.z;
         r.doll.position.y += (seatY(i) - r.doll.position.y) * k;
       });
@@ -876,11 +876,17 @@
       var el = document.createElement('div');
       el.className = 'rbubble';
       document.body.appendChild(el);
-      rm = remotes[uid] = { rec: rec, x: d.x, z: d.z, f: d.f || 0, tx: d.x, tz: d.z, tf: d.f || 0, say: '', camel: -1, onCamel: -1, el: el, phase: 0 };
+      rm = remotes[uid] = {
+        rec: rec, x: d.x, z: d.z, f: d.f || 0, tx: d.x, tz: d.z, tf: d.f || 0, say: '', camel: -1, onCamel: -1, el: el,
+        phase: 0, act: 0, palm: 0, u: 0, tu: 0, cph: 0, bow: 0, dT: 0, lastSip: -2, head: 0, hop: 0, hopT: 1, hopFrom: null
+      };
     }
     rm.tx = d.x; rm.tz = d.z; rm.tf = d.f || 0;
     rm.say = typeof d.say === 'string' ? (isBad(d.say) ? MASKED_TEXT : d.say) : '';
     rm.camel = typeof d.camel === 'number' ? d.camel : -1;
+    rm.act = typeof d.act === 'number' ? d.act : 0;      // 0 = walking, 1 = drinking, 2 = climbing a palm
+    rm.palm = typeof d.palm === 'number' ? d.palm : 0;
+    rm.tu = typeof d.u === 'number' ? d.u : 0;
   }
   function detachRemote(rm) {
     if (rm.onCamel < 0) return;
@@ -888,12 +894,15 @@
     if (c) {
       var i = c.riders.indexOf(rm.rec);
       if (i >= 0) c.riders.splice(i, 1);
+      rm.x = c.pos.x; rm.z = c.pos.y;
     }
+    rm.rec.hopActive = false;
     scene.add(rm.rec.doll);
     rm.rec.doll.scale.setScalar(0.25);
     rm.rec.doll.rotation.set(0, rm.f, 0);
     resetPose(rm.rec);
     rm.onCamel = -1;
+    rm.hop = 0.6;
   }
   function removeRemote(uid) {
     var rm = remotes[uid];
@@ -903,34 +912,100 @@
     rm.el.remove();
     delete remotes[uid];
   }
+  function tiltHeadOf(g, a) {
+    var pz = 0.4, py = 8.2, c = Math.cos(a), sn = Math.sin(a);
+    g.rotation.x = a;
+    g.position.set(0, py - (py * c - pz * sn), pz - (py * sn + pz * c));
+  }
   function updateRemotes(dt) {
     var k = 1 - Math.exp(-dt * 8);
     Object.keys(remotes).forEach(function (uid) {
-      var rm = remotes[uid], d = rm.rec.doll;
+      var rm = remotes[uid], rec = rm.rec, d = rec.doll;
+
+      // get on / off a camel (with a small hop)
       if (rm.camel !== rm.onCamel) {
+        var fromW = d.getWorldPosition(new THREE.Vector3());
         detachRemote(rm);
         var c = camels[rm.camel];
         if (rm.camel >= 0 && c) {
+          c.root.updateMatrixWorld(true);
+          var fromL = c.body.worldToLocal(fromW.clone());
           c.body.add(d);
           d.scale.setScalar(0.25 / c.root.scale.x);
           d.rotation.set(0, 0, 0);
-          d.position.set(SEAT.x, seatY(c.riders.length), SEAT.z);
-          poseSeated(rm.rec);
-          c.riders.push(rm.rec);
+          d.position.copy(fromL);
+          poseSeated(rec);
+          c.riders.push(rec);
           rm.onCamel = rm.camel;
+          rec.hopActive = true; rm.hopT = 0; rm.hopFrom = fromL;
         }
       }
-      if (rm.onCamel >= 0) return;
+      if (rm.onCamel >= 0) {
+        tiltHeadOf(rec.headG, 0);
+        if (rec.hopActive) {
+          rm.hopT += dt;
+          var uu = Math.min(1, rm.hopT / 0.6), e = uu * uu * (3 - 2 * uu);
+          var c2 = camels[rm.onCamel], ti = Math.max(0, c2.riders.indexOf(rec));
+          d.position.set(
+            rm.hopFrom.x + (SEAT.x - rm.hopFrom.x) * e,
+            rm.hopFrom.y + (seatY(ti) - rm.hopFrom.y) * e + Math.sin(uu * Math.PI) * 10,
+            rm.hopFrom.z + (SEAT.z - rm.hopFrom.z) * e);
+          if (uu >= 1) rec.hopActive = false;
+        }
+        return;
+      }
+
+      rm.head += ((rm.act === 2 ? -0.8 : 0) - rm.head) * (1 - Math.exp(-dt * 8));
+      tiltHeadOf(rec.headG, rm.head);
+
+      // climbing a palm tree
+      if (rm.act === 2 && palms[rm.palm]) {
+        var p = palms[rm.palm];
+        rm.u += (rm.tu - rm.u) * k;
+        var P = p.g.localToWorld(p.curve.getPointAt(Math.max(0, Math.min(1, rm.u))));
+        rm.f = rm.tf;
+        d.position.set(P.x - Math.sin(rm.f) * 2.0, P.y - 1.5, P.z - Math.cos(rm.f) * 2.0);
+        d.rotation.set(0.12, rm.f, 0);
+        rm.x = d.position.x; rm.z = d.position.z;
+        var mv = Math.abs(rm.tu - rm.u) > 0.002;
+        rm.cph += dt * (mv ? 7 : 1.5);
+        var s2 = Math.sin(rm.cph) * (mv ? 1 : 0.25);
+        rec.armL.rotation.x = -2.5 + s2 * 0.35; rec.armR.rotation.x = -2.5 - s2 * 0.35;
+        rec.legL.rotation.x = -0.55 - s2 * 0.6; rec.legR.rotation.x = -0.55 + s2 * 0.6;
+        return;
+      }
+
+      // walking / drinking
       var ox = rm.x, oz = rm.z;
       rm.x += (rm.tx - rm.x) * k; rm.z += (rm.tz - rm.z) * k;
       rm.f += Math.atan2(Math.sin(rm.tf - rm.f), Math.cos(rm.tf - rm.f)) * k;
       var spd = Math.hypot(rm.x - ox, rm.z - oz) / Math.max(dt, 0.001), amp = Math.min(1, spd / 25);
       rm.phase += dt * (4 + spd * 0.12);
       var sw = Math.sin(rm.phase) * 0.7 * amp;
-      rm.rec.legL.rotation.x = sw; rm.rec.legR.rotation.x = -sw;
-      rm.rec.armL.rotation.x = -sw * 0.8; rm.rec.armR.rotation.x = sw * 0.8;
-      d.position.set(rm.x, height(rm.x, rm.z) + Math.abs(Math.sin(rm.phase)) * 0.4 * amp, rm.z);
-      d.rotation.y = rm.f;
+
+      rm.bow += ((rm.act === 1 ? 1 : 0) - rm.bow) * (1 - Math.exp(-dt * 5));
+      var sip = 0;
+      if (rm.act === 1 && rm.bow > 0.9) {
+        rm.dT += dt;
+        sip = Math.sin(rm.dT * 7) * 0.5 + 0.5;
+        var cyc = Math.floor((rm.dT * 7 - Math.PI / 2) / (Math.PI * 2));
+        if (cyc >= 0 && cyc !== rm.lastSip) {
+          rm.lastSip = cyc;
+          var np = nearestOn(new THREE.Vector2(rm.x, rm.z), polyOut);
+          splash(np.p.x, np.p.y);
+        }
+      } else if (rm.act !== 1) { rm.dT = 0; rm.lastSip = -2; }
+      var bw = rm.bow;
+      rec.legL.rotation.x = sw; rec.legR.rotation.x = -sw;
+      rec.armL.rotation.x = rec.armR.rotation.x = 0;
+      rec.armL.rotation.x = -sw * 0.8 * (1 - bw) - bw * 1.25;
+      rec.armR.rotation.x = sw * 0.8 * (1 - bw) - bw * 1.25;
+      rec.armL.rotation.z = -0.25 + bw * 0.4; rec.armR.rotation.z = 0.25 - bw * 0.4;
+
+      var hopY = 0;
+      if (rm.hop > 0) { rm.hop -= dt; hopY = Math.sin(Math.PI * (1 - Math.max(0, rm.hop) / 0.6)) * 3; }
+      d.position.set(rm.x, height(rm.x, rm.z) + Math.abs(Math.sin(rm.phase)) * 0.4 * amp + hopY, rm.z);
+      d.rotation.set(bw * (0.5 + 0.2 * sip), rm.f, 0);
     });
   }
   var rbAnchor = new THREE.Vector3();
@@ -955,9 +1030,13 @@
     camelCount: function () { return camels.length; },
     getMe: function () {
       var f = riding ? riding.facing : facing;
+      var act = 0, palmI = 0, uu = 0;
+      if (climb && climb.state !== 'approach') { act = 2; palmI = palms.indexOf(climb.p); uu = climb.u; }
+      else if (drinkState === 2) act = 1;
       return {
         name: me.label, x: cur.x, z: cur.y, f: Math.atan2(Math.sin(f), Math.cos(f)),
-        say: bubbleOn ? bubbleText.textContent : '', camel: riding ? camels.indexOf(riding) : -1
+        say: bubbleOn ? bubbleText.textContent : '', camel: riding ? camels.indexOf(riding) : -1,
+        act: act, palm: palmI, u: uu
       };
     },
     setRemote: setRemote,
@@ -1291,7 +1370,8 @@
       const m = D.getMe();
       const data = { name: m.name, x: round(m.x), z: round(m.z), f: round(m.f), camel: m.camel, t: serverTimestamp() };
       if (m.say) data.say = m.say;
-      const key = JSON.stringify([data.name, data.x, data.z, data.f, data.camel, data.say || ""]);
+      if (m.act) { data.act = m.act; if (m.act === 2) { data.palm = m.palm; data.u = round(m.u); } }
+      const key = JSON.stringify([data.name, data.x, data.z, data.f, data.camel, data.say || "", data.act || 0, data.palm || 0, data.u || 0]);
       if (key !== lastSent) { lastSent = key; set(meRef, data).catch(() => {}); }
 
       const up = {};
