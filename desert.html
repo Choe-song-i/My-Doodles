@@ -19,13 +19,15 @@
   #bubble::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 10px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.93); }
   #bubbleX { display: none; position: absolute; top: -11px; right: -11px; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: #555; color: #fff; font-size: 17px; line-height: 26px; text-align: center; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.3); }
   #bubble.sel #bubbleX { display: block; }
-  #netStatus { position: fixed; left: 10px; top: 10px; z-index: 20; max-width: 80vw; padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,.72); color: #444; font: 12px/1.3 "Noto Sans KR", "Malgun Gothic", sans-serif; pointer-events: none; }
+  #netStatus { position: fixed; left: 12px; top: 12px; z-index: 20; display: flex; align-items: center; gap: 8px; }
+  #netDot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: #e74c3c; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+  #netCount { display: none; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.75); color: #333; font: 600 13px/1.3 "Noto Sans KR", "Malgun Gothic", sans-serif; }
   .rbubble { position: fixed; left: 0; top: 0; display: none; z-index: 9; transform: translate(-50%, -100%); max-width: min(270px, 72vw); padding: 12px 16px; background: rgba(255,255,255,.93); border-radius: 18px; box-shadow: 0 6px 18px rgba(0,0,0,.22); color: #333; font: 15px/1.45 "Noto Sans KR", "Malgun Gothic", sans-serif; white-space: pre-wrap; word-break: break-word; pointer-events: none; box-sizing: border-box; }
   .rbubble::after { content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); border: 10px solid transparent; border-bottom: 0; border-top-color: rgba(255,255,255,.93); }
     </style>
 </head>
 <body>
-<div id="netStatus">멀티플레이: 확인 중…</div>
+<div id="netStatus" title="멀티플레이: 확인 중"><span id="netDot"></span><span id="netCount"></span></div>
 <div id="chatIn"><div class="row"><input id="chatText" type="text" maxlength="200" placeholder="말을 입력하세요 (200자 이내)" autocomplete="off"><button id="chatSend">말하기</button></div><div id="chatCount">0 / 200</div></div>
 <div id="bubble"><button id="bubbleX" aria-label="삭제">×</button><span id="bubbleText"></span></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -78,7 +80,7 @@
   var mg = mc.getContext('2d');
   if (NIGHT) {
     // night: crescent moon
-    mg.fillStyle = '#fff4cc';
+    mg.fillStyle = '#FFFED7';
     mg.beginPath(); mg.arc(128, 128, 100, 0, Math.PI * 2); mg.fill();
     mg.globalCompositeOperation = 'destination-out';
     mg.beginPath(); mg.arc(170, 100, 90, 0, Math.PI * 2); mg.fill();
@@ -95,19 +97,6 @@
   );
   moon.renderOrder = -1;
   scene.add(moon);
-  if (NIGHT) {
-    var gc = document.createElement('canvas');
-    gc.width = gc.height = 128;
-    var gg = gc.getContext('2d'), gr = gg.createRadialGradient(64, 64, 4, 64, 64, 64);
-    gr.addColorStop(0, 'rgba(255,244,204,0.55)'); gr.addColorStop(1, 'rgba(255,244,204,0)');
-    gg.fillStyle = gr; gg.fillRect(0, 0, 128, 128);
-    var glow = new THREE.Mesh(
-      new THREE.PlaneGeometry(240, 240),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(gc), transparent: true, fog: false, depthWrite: false, blending: THREE.AdditiveBlending })
-    );
-    glow.position.z = -1;
-    moon.add(glow);
-  }
 
   // stars (night only)
   var stars = null;
@@ -209,10 +198,26 @@
   var hoodMat = new THREE.MeshLambertMaterial({ color: 0xf8f8f8, side: THREE.DoubleSide });
   var hood = add(headG, new THREE.SphereGeometry(6.1, 28, 22, Math.PI / 2 + 0.75, Math.PI * 2 - 1.5, 0, Math.PI * 0.82), hoodMat, 0, 12.8, -0.4);
   hood.scale.set(1, 1.08, 1.05);
-      [-1, 1].forEach(function (sx) {
-    var eye = add(headG, new THREE.SphereGeometry(1, 16, 12), black, sx * 2.3, 12.9, 4.9);
-    eye.scale.set(0.85, 1.25, 0.6);
-    add(headG, new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }), sx * 2.3 + 0.2, 13.4, 5.35);
+      var buttonMat = new THREE.MeshPhongMaterial({ color: 0x1b1b1b, shininess: 100, specular: 0x666666 });
+  var buttonRim = new THREE.MeshPhongMaterial({ color: 0x2b2b2b, shininess: 60, specular: 0x555555 });
+  var holeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  [-1, 1].forEach(function (sx) {
+    var btn = new THREE.Group();
+    btn.position.set(sx * 2.3, 12.9, 4.95);
+    btn.rotation.y = sx * 0.4;
+    var disc = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.72, 0.28, 28), buttonMat);
+    disc.rotation.x = Math.PI / 2;
+    btn.add(disc);
+    var rim = new THREE.Mesh(new THREE.TorusGeometry(0.52, 0.09, 8, 24), buttonRim);
+    rim.position.z = 0.15;
+    btn.add(rim);
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(function (h) {
+      var hole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 10), holeMat);
+      hole.rotation.x = Math.PI / 2;
+      hole.position.set(h[0] * 0.2, h[1] * 0.2, 0.15);
+      btn.add(hole);
+    });
+    headG.add(btn);
   });
           var mouth = add(headG, new THREE.TorusGeometry(0.8, 0.13, 8, 24, Math.PI * 0.8), M(0x3a1a1a), 0, 11.8, 5.2);
   mouth.rotation.z = Math.PI * 1.1;
@@ -1340,8 +1345,12 @@
   import { getDatabase, ref, set, update, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
   const D = window.desert;
-  const badge = document.getElementById("netStatus");
-  const status = (text, ok) => { badge.textContent = (ok ? "● " : "○ ") + "멀티플레이: " + text; badge.style.color = ok ? "#1a7f4b" : "#b3261e"; };
+  const badge = document.getElementById("netStatus"), dot = document.getElementById("netDot"), countEl = document.getElementById("netCount");
+  const status = (text, ok) => {
+    dot.style.background = ok ? "#2ecc71" : "#e74c3c";
+    badge.title = "멀티플레이: " + text;
+    if (!ok) countEl.style.display = "none";
+  };
   const hint = (e) => {
     const c = (e && e.code) || "", m = (e && e.message) || String(e);
     if (c === "auth/operation-not-allowed") return "익명 로그인이 꺼져 있어요 (Authentication → 로그인 방법에서 익명을 켜 주세요)";
@@ -1367,7 +1376,12 @@
     const meRef = ref(db, "players/" + myKey);
     const NCAM = D.camelCount();
     const round = (v) => Math.round(v * 100) / 100;
-    let players = {}, lastSent = "", wroteOnce = false;
+    let players = {}, lastSent = "", wroteOnce = false, othersCount = 0;
+    const showCount = () => {
+      status("접속됨 · 다른 유저 " + othersCount + "명", true);
+      countEl.textContent = (othersCount + 1) + "명 방황 중";
+      countEl.style.display = "inline-block";
+    };
     const camSent = {};
     status("로그인됨, 데이터 확인 중…", false);
 
@@ -1396,7 +1410,8 @@
       }
       D.pruneRemotes(seen);
       applyControl();
-      status(wroteOnce ? "접속됨 · 다른 유저 " + seen.size + "명" : "읽기 성공, 내 정보 올리는 중…", wroteOnce);
+      othersCount = seen.size;
+      if (wroteOnce) showCount(); else status("읽기 성공, 내 정보 올리는 중…", false);
     }, (e) => { console.warn("[멀티플레이] 읽기 거부", e); status("읽기 실패 - " + hint(e), false); });
 
     onValue(ref(db, "camels"), (snap) => {
@@ -1413,7 +1428,7 @@
       const key = JSON.stringify([data.name, data.x, data.z, data.f, data.camel, data.say || "", data.act || 0, data.palm || 0, data.u || 0]);
       if (key !== lastSent) {
         lastSent = key;
-        set(meRef, data).then(() => { wroteOnce = true; }).catch((e) => { console.warn("[멀티플레이] 쓰기 거부", e); status("내 정보를 올리지 못했어요 - " + hint(e), false); });
+        set(meRef, data).then(() => { wroteOnce = true; showCount(); }).catch((e) => { console.warn("[멀티플레이] 쓰기 거부", e); status("내 정보를 올리지 못했어요 - " + hint(e), false); });
       }
 
       const up = {};
